@@ -88,6 +88,7 @@
       .badge.Active, .badge.Approved, .badge.Safe { color: var(--green); background: #ddebdc; }
       .badge.Submitted, .badge.Proposal, .badge.Irritant, .badge.Flammable { color: var(--amber); background: #f5e8d1; }
       .badge.Rejected, .badge.Corrosive, .badge.Toxic, .badge.Explosive { color: var(--red); background: #f2dbd8; }
+      .badge.Withdrawn { color: var(--muted); background: #e3dfd0; }
       .alert { border-left: 5px solid var(--red); background: #faeee8; padding: 12px 14px; border-radius: 6px; margin-bottom: 16px; }
       @media (max-width: 760px) {
         .shell { grid-template-columns: 1fr; }
@@ -157,8 +158,10 @@
           ${table(["试剂", "CAS", "危险等级", "库存", "存放位置", "操作"], state.reagents.map((x) => [x.name, x.casNo, badge(x.hazardLevel), stock(x), x.location, `<button class="action secondary" onclick="stockIn('${x.id}')">入库</button>`]))}`;
         }
         if (state.view === "usages") {
-          app.innerHTML = `<h2>领用记录</h2><div class="toolbar"><button class="action" onclick="createUsage()">创建领用单</button></div>
-          ${table(["试剂", "数量", "实验", "用途", "审批人"], state.usages.map((x) => [reagentName(x.reagentId), x.quantity, experimentName(x.experimentId), x.purpose, x.approverId || "-"]))}`;
+          app.innerHTML = `<h2>领用记录</h2>
+          <div class="alert" style="border-left-color: var(--blue); background: #e8eef5;">记账口径：登记量保留不改；<b>库存、低库存预警与本单数量一律按生效量计算</b> —— 生效量 = 实领量（未补录时按登记量）。撤回按生效量把库存加回。实领量不得超过登记量；撤回后库存为负将被拒绝。</div>
+          <div class="toolbar"><button class="action" onclick="createUsage()">创建领用单</button></div>
+          ${table(["试剂", "登记量", "实领量", "生效量(库存按此扣)", "状态", "实验", "用途", "操作"], state.usages.map((x) => [reagentName(x.reagentId), amount(x, x.quantity), x.actualQuantity === undefined ? "未补录" : amount(x, x.actualQuantity), amount(x, effective(x)), badge(x.status), experimentName(x.experimentId), x.purpose, usageActions(x)]))}`;
         }
       }
       function table(headers, rows) {
@@ -174,6 +177,36 @@
       const projectName = (id) => state.projects.find((x) => x.id === id)?.name || id;
       const reagentName = (id) => state.reagents.find((x) => x.id === id)?.name || id;
       const experimentName = (id) => state.experiments.find((x) => x.id === id)?.title || id;
+      // 与后端同一口径：生效量 = 实领量（未补录按登记量），已撤回的单不再占用库存
+      const effective = (x) => (x.status === "Withdrawn" ? 0 : (x.actualQuantity ?? x.quantity));
+      const amount = (x, value) => `${value}${state.reagents.find((r) => r.id === x.reagentId)?.unit || ""}`;
+      function usageActions(x) {
+        if (x.status === "Withdrawn") return "已撤回，库存已按生效量回补";
+        return `<button class="action secondary" onclick="confirmActual('${x.id}', ${x.quantity})">补实领量</button> <button class="action warning" onclick="withdrawUsage('${x.id}')">撤回</button>`;
+      }
+      async function refreshUsages() {
+        state.usages = await api("/reagent-usages");
+        state.reagents = await api("/reagents");
+        render();
+      }
+      async function confirmActual(id, registered) {
+        const input = prompt(`补录实领量（不得超过登记量 ${registered}）`);
+        if (input === null) return;
+        const actual = Number(input);
+        if (input.trim() === "" || !Number.isFinite(actual) || actual < 0) { alert("实领量必须是不小于 0 的数字"); return; }
+        if (actual > registered) { alert("实领量不能超过登记量"); return; }
+        try {
+          await api(`/reagent-usages/${id}/actual`, { method: "PATCH", body: JSON.stringify({ actualQuantity: actual }) });
+          await refreshUsages();
+        } catch (error) { alert(error.message); }
+      }
+      async function withdrawUsage(id) {
+        if (!confirm("确认撤回该领用单？库存将按生效量加回。")) return;
+        try {
+          await api(`/reagent-usages/${id}/withdraw`, { method: "PATCH" });
+          await refreshUsages();
+        } catch (error) { alert(error.message); }
+      }
       async function createProject() { await api("/projects", { method: "POST", body: JSON.stringify({ name: "单细胞数据复核项目", projectNo: "RL-2026-BIO-099", direction: "Biology", totalBudget: 180000 }) }); state.projects = await api("/projects"); render(); }
       async function createExperiment() { await api("/experiments", { method: "POST", body: JSON.stringify({ projectId: state.projects[0].id, title: "Western Blot 条件摸索", purpose: "优化抗体稀释比例", method: "WB" }) }); state.experiments = await api("/experiments"); render(); }
       async function submitExperiment(id) { await api(`/experiments/${id}/submit`, { method: "PATCH" }); state.experiments = await api("/experiments"); render(); }

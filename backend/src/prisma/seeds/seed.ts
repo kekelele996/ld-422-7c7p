@@ -1,4 +1,4 @@
-import { HazardLevel, ProjectStatus, ReviewStatus, StorageCondition } from "../../types/enums.ts";
+import { HazardLevel, ProjectStatus, ReviewStatus, StorageCondition, UsageStatus } from "../../types/enums.ts";
 import type { AuditLog, ExperimentRecord, ProjectMember, Reagent, ReagentUsage, ResearchProject, User } from "../../types/interfaces.ts";
 
 export const users: User[] = [
@@ -26,8 +26,8 @@ export const reagents: Reagent[] = [
 ];
 
 export const reagentUsages: ReagentUsage[] = [
-  { id: "use-001", reagentId: "rg-ethanol", userId: "u-researcher", quantity: 0.5, usedAt: "2026-06-09", experimentId: "ex-001", purpose: "样本固定", approverId: "u-pi" },
-  { id: "use-002", reagentId: "rg-pbs", userId: "u-student", quantity: 2, usedAt: "2026-06-10", experimentId: "ex-002", purpose: "样本清洗", approverId: "u-researcher" }
+  { id: "use-001", reagentId: "rg-ethanol", userId: "u-researcher", quantity: 0.5, status: UsageStatus.Active, usedAt: "2026-06-09", experimentId: "ex-001", purpose: "样本固定", approverId: "u-pi" },
+  { id: "use-002", reagentId: "rg-pbs", userId: "u-student", quantity: 2, status: UsageStatus.Active, usedAt: "2026-06-10", experimentId: "ex-002", purpose: "样本清洗", approverId: "u-researcher" }
 ];
 
 export const members: ProjectMember[] = [

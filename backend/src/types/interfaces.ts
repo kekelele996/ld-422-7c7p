@@ -1,4 +1,4 @@
-import type { HazardLevelValue, ProjectStatusValue, ReviewStatusValue, StorageConditionValue, UserRole } from "./enums.ts";
+import type { HazardLevelValue, ProjectStatusValue, ReviewStatusValue, StorageConditionValue, UsageStatusValue, UserRole } from "./enums.ts";
 
 export type User = { id: string; name: string; role: UserRole };
 export type ResearchProject = {
@@ -47,7 +47,12 @@ export type ReagentUsage = {
   id: string;
   reagentId: string;
   userId: string;
+  /** 登记量：创建领用单时的计划用量，保留不改，作为实领量的上限 */
   quantity: number;
+  /** 实领量：领用人补录的实际用量；库存与预警按「生效量 = 实领量 ?? 登记量」记账 */
+  actualQuantity?: number;
+  status: UsageStatusValue;
+  withdrawnAt?: string;
   usedAt: string;
   experimentId: string;
   purpose: string;

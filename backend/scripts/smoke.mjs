@@ -55,6 +55,53 @@ assert.equal(usage.quantity, 1);
 
 const stocked = reagentRoutes("PATCH", `/api/reagents/${reagent.id}/stock-in`, query, pi, { quantity: 2 });
 assert.equal(stocked.stock, 7);
+
+// 实领量补录：登记量保留，库存按生效量差额调整
+const usage2 = reagentUsageRoutes("POST", "/api/reagent-usages", query, pi, {
+  reagentId: reagent.id,
+  experimentId: experiment.id,
+  quantity: 4,
+  purpose: "smoke actual"
+});
+assert.equal(usage2.status, "Active");
+assert.equal(usage2.userId, "u-pi");
+assert.equal(reagent.stock, 3);
+
+const confirmed = reagentUsageRoutes("PATCH", `/api/reagent-usages/${usage2.id}/actual`, query, pi, { actualQuantity: 1.5 });
+assert.equal(confirmed.actualQuantity, 1.5);
+assert.equal(confirmed.quantity, 4);
+assert.equal(reagent.stock, 5.5);
+
+let exceeded = null;
+try { reagentUsageRoutes("PATCH", `/api/reagent-usages/${usage2.id}/actual`, query, pi, { actualQuantity: 5 }); } catch (error) { exceeded = error; }
+assert.equal(exceeded?.code, "ACTUAL_EXCEEDS_REGISTERED");
+assert.equal(reagent.stock, 5.5);
+
+const student = { id: "u-student", name: "赵同学", role: "Student" };
+let forbidden = null;
+try { reagentUsageRoutes("PATCH", `/api/reagent-usages/${usage2.id}/actual`, query, student, { actualQuantity: 1 }); } catch (error) { forbidden = error; }
+assert.equal(forbidden?.code, "FORBIDDEN");
+
+// 撤回：按生效量（实领量 1.5）回补库存，撤回后不可再补录
+const withdrawn = reagentUsageRoutes("PATCH", `/api/reagent-usages/${usage2.id}/withdraw`, query, pi, {});
+assert.equal(withdrawn.status, "Withdrawn");
+assert.equal(reagent.stock, 7);
+
+let reconfirm = null;
+try { reagentUsageRoutes("PATCH", `/api/reagent-usages/${usage2.id}/actual`, query, pi, { actualQuantity: 1 }); } catch (error) { reconfirm = error; }
+assert.equal(reconfirm?.code, "USAGE_WITHDRAWN");
+
+// 调高实领量时库存不够扣，必须拦截且库存不变
+const tight = reagentRoutes("POST", "/api/reagents", query, pi, { name: "负库存拦截试剂", stock: 3, minStock: 1 });
+const usage3 = reagentUsageRoutes("POST", "/api/reagent-usages", query, pi, { reagentId: tight.id, experimentId: experiment.id, quantity: 3 });
+reagentUsageRoutes("PATCH", `/api/reagent-usages/${usage3.id}/actual`, query, pi, { actualQuantity: 0.5 });
+reagentUsageRoutes("POST", "/api/reagent-usages", query, pi, { reagentId: tight.id, experimentId: experiment.id, quantity: 2.5 });
+assert.equal(tight.stock, 0);
+let negative = null;
+try { reagentUsageRoutes("PATCH", `/api/reagent-usages/${usage3.id}/actual`, query, pi, { actualQuantity: 2 }); } catch (error) { negative = error; }
+assert.equal(negative?.code, "STOCK_NEGATIVE");
+assert.equal(tight.stock, 0);
+
 assert.equal(auditLogs.length >= 6, true);
 
 console.log("ld-422 backend route smoke passed");
