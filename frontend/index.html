@@ -88,6 +88,19 @@
       .badge.Active, .badge.Approved, .badge.Safe { color: var(--green); background: #ddebdc; }
       .badge.Submitted, .badge.Proposal, .badge.Irritant, .badge.Flammable { color: var(--amber); background: #f5e8d1; }
       .badge.Rejected, .badge.Corrosive, .badge.Toxic, .badge.Explosive { color: var(--red); background: #f2dbd8; }
+      .badge.Withdrawn { color: var(--muted); background: #e6e2d6; }
+      tr.row-withdrawn { opacity: 0.6; }
+      td.low { color: var(--red); font-weight: 700; }
+      .effective { font-weight: 700; color: var(--blue); }
+      .hint { font-size: 12px; color: var(--muted); }
+      .notice { border-left: 5px solid var(--blue); background: #e9f0f6; padding: 12px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 14px; line-height: 1.7; }
+      .who { margin-top: 26px; }
+      .who select { width: 100%; }
+      .inline-form { display: inline-flex; gap: 6px; align-items: center; }
+      .inline-form input { width: 86px; min-height: 32px; padding: 4px 8px; }
+      button.mini { min-height: 30px; border: 0; border-radius: 6px; padding: 4px 10px; color: white; background: var(--green); cursor: pointer; font-size: 13px; }
+      button.mini.danger { background: var(--red); }
+      button.mini:disabled { background: #b9b3a3; cursor: not-allowed; }
       .alert { border-left: 5px solid var(--red); background: #faeee8; padding: 12px 14px; border-radius: 6px; margin-bottom: 16px; }
       @media (max-width: 760px) {
         .shell { grid-template-columns: 1fr; }
@@ -104,14 +117,31 @@
         <button class="nav" data-view="experiments">实验记录</button>
         <button class="nav" data-view="reagents">试剂管理</button>
         <button class="nav" data-view="usages">领用记录</button>
+        <div class="who">
+          <div class="hint" style="margin-bottom:6px">当前身份（补录/撤回仅限本人）</div>
+          <select id="userSelect">
+            <option value="u-admin">平台管理员</option>
+            <option value="u-pi">王教授（PI）</option>
+            <option value="u-researcher" selected>李博士（Researcher）</option>
+            <option value="u-student">赵同学（Student）</option>
+          </select>
+        </div>
       </aside>
       <main id="app">加载中...</main>
     </div>
     <script>
+      const USERS = [
+        { id: "u-admin", name: "平台管理员" },
+        { id: "u-pi", name: "王教授" },
+        { id: "u-researcher", name: "李博士" },
+        { id: "u-student", name: "赵同学" }
+      ];
+      let currentUserId = localStorage.getItem("research-lab-demo-user") || "u-researcher";
+      const userName = (id) => USERS.find((u) => u.id === id)?.name || id;
       const api = async (path, options = {}) => {
         const response = await fetch(`/api${path}`, {
           ...options,
-          headers: { "content-type": "application/json", "x-demo-role": "PI", ...(options.headers || {}) }
+          headers: { "content-type": "application/json", "x-demo-role": "PI", "x-demo-user-id": currentUserId, ...(options.headers || {}) }
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.message || "请求失败");
@@ -139,8 +169,9 @@
           <section class="grid">
             <div class="card">在研项目<div class="stat">${d.activeProjects.length}</div></div>
             <div class="card">近7天实验记录<div class="stat">${d.recentExperimentCount}</div></div>
-            <div class="card">低库存试剂<div>${d.lowStockReagents.map((x) => `${x.name}: ${x.stock}${x.unit}`).join("<br>") || "库存稳定"}</div></div>
+            <div class="card">低库存试剂<div>${d.lowStockReagents.map((x) => `<span class="badge Rejected">${x.name}: ${x.stock}${x.unit}</span>`).join(" ") || "库存稳定"}</div></div>
           </section>
+          <div class="notice">低库存按当前库存判断：已扣除所有「生效中」领用单的<b>当前生效量</b>（补过实领量按实领量，未补按登记量），已撤回的单子不扣库存。</div>
           ${table(["项目", "方向", "状态", "经费"], d.activeProjects.map((x) => [x.name, x.direction, badge(x.status), progress(x.usedBudget, x.totalBudget)]))}`;
         }
         if (state.view === "projects") {
@@ -154,11 +185,61 @@
         }
         if (state.view === "reagents") {
           app.innerHTML = `<h2>试剂管理</h2><div class="toolbar"><button class="action" onclick="createReagent()">新增试剂</button></div>
-          ${table(["试剂", "CAS", "危险等级", "库存", "存放位置", "操作"], state.reagents.map((x) => [x.name, x.casNo, badge(x.hazardLevel), stock(x), x.location, `<button class="action secondary" onclick="stockIn('${x.id}')">入库</button>`]))}`;
+          <div class="notice">库存口径：当前库存 = 入库累计 − 所有「生效中」领用单的<b>当前生效量</b>（补过实领量按实领量，未补按登记量）；已撤回的单子不占用库存。</div>
+          ${table(["试剂", "CAS", "危险等级", "当前库存", "最低阈值", "存放位置", "操作"], state.reagents.map((x) => [
+            x.name,
+            x.casNo,
+            badge(x.hazardLevel),
+            `<span style="color:${x.stock < x.minStock ? "var(--red)" : "var(--green)"};font-weight:700">${x.stock}${x.unit}</span>`,
+            `${x.minStock}${x.unit}`,
+            x.location,
+            `<button class="action secondary" onclick="stockIn('${x.id}')">入库</button>`
+          ]))}`;
         }
         if (state.view === "usages") {
-          app.innerHTML = `<h2>领用记录</h2><div class="toolbar"><button class="action" onclick="createUsage()">创建领用单</button></div>
-          ${table(["试剂", "数量", "实验", "用途", "审批人"], state.usages.map((x) => [reagentName(x.reagentId), x.quantity, experimentName(x.experimentId), x.purpose, x.approverId || "-"]))}`;
+          app.innerHTML = `<h2>领用记录</h2>
+          <div class="toolbar">
+            <button class="action" onclick="createUsage()">创建领用单</button>
+            <select id="statusFilter" onchange="loadUsages()">
+              <option value="">全部状态</option>
+              <option value="Active">生效中</option>
+              <option value="Withdrawn">已撤回</option>
+            </select>
+          </div>
+          <div class="notice">
+            数量口径：<b>登记量</b>是领用登记时的原始数量，永久保留不改；领用人补录的<b>实领量</b>是当前生效值。
+            试剂列表库存、总览低库存提醒、本单数量一律按<b>当前生效量</b>（未补实领量按登记量，补过按实领量）走；
+            撤回时按当前生效量把库存加回。实领量不能超过登记量，撤回后库存为负会被拒绝。只能操作自己的领用单。
+          </div>
+          ${table(
+            ["状态", "试剂", "领用人", "登记量", "实领量（生效）", "实验", "用途", "操作"],
+            state.usages.map((x) => {
+              const unit = reagentUnit(x.reagentId);
+              const withdrawn = x.status === "Withdrawn";
+              const own = x.userId === currentUserId;
+              const actualCell = withdrawn
+                ? "—"
+                : `<span class="effective">${effectiveQuantity(x)}${unit}</span>` +
+                  (x.actualQuantity == null ? `<div class="hint">未补录，按登记量</div>` : "");
+              const actions = withdrawn
+                ? `<span class="hint">已按生效量回库</span>`
+                : `<div class="inline-form">
+                     <input type="number" min="0.1" step="0.1" max="${x.quantity}" value="${x.actualQuantity ?? x.quantity}" id="actual-${x.id}"${own ? "" : " disabled"} />
+                     <button class="mini" onclick="fillActual('${x.id}')"${own ? "" : " disabled"}>补实领量</button>
+                     <button class="mini danger" onclick="withdrawUsage('${x.id}')"${own ? "" : " disabled"}>撤回</button>
+                   </div>${own ? "" : `<div class="hint">仅本人可操作（${userName(x.userId)}）</div>`}`;
+              return [
+                `<span class="badge ${x.status}">${x.status === "Withdrawn" ? "已撤回" : "生效中"}</span>`,
+                reagentName(x.reagentId),
+                userName(x.userId),
+                `${x.quantity}${unit}`,
+                actualCell,
+                experimentName(x.experimentId),
+                x.purpose,
+                actions
+              ];
+            })
+          )}`;
         }
       }
       function table(headers, rows) {
@@ -173,15 +254,60 @@
       }
       const projectName = (id) => state.projects.find((x) => x.id === id)?.name || id;
       const reagentName = (id) => state.reagents.find((x) => x.id === id)?.name || id;
+      const reagentUnit = (id) => state.reagents.find((x) => x.id === id)?.unit || "";
       const experimentName = (id) => state.experiments.find((x) => x.id === id)?.title || id;
+      /** 当前生效量：撤回单为 0；未补实领量按登记量，补过按实领量。库存与撤回归还都按此值 */
+      const effectiveQuantity = (x) => (x.status === "Withdrawn" ? 0 : x.actualQuantity ?? x.quantity);
       async function createProject() { await api("/projects", { method: "POST", body: JSON.stringify({ name: "单细胞数据复核项目", projectNo: "RL-2026-BIO-099", direction: "Biology", totalBudget: 180000 }) }); state.projects = await api("/projects"); render(); }
       async function createExperiment() { await api("/experiments", { method: "POST", body: JSON.stringify({ projectId: state.projects[0].id, title: "Western Blot 条件摸索", purpose: "优化抗体稀释比例", method: "WB" }) }); state.experiments = await api("/experiments"); render(); }
       async function submitExperiment(id) { await api(`/experiments/${id}/submit`, { method: "PATCH" }); state.experiments = await api("/experiments"); render(); }
       async function reviewExperiment(id) { await api(`/experiments/${id}/review`, { method: "PATCH", body: JSON.stringify({ status: "Approved", comment: "记录完整，允许归档" }) }); state.experiments = await api("/experiments"); render(); }
       async function createReagent() { await api("/reagents", { method: "POST", body: JSON.stringify({ name: "Tris-HCl", casNo: "1185-53-1", formula: "C4H12ClNO3", stock: 3, minStock: 2, unit: "瓶" }) }); state.reagents = await api("/reagents"); render(); }
       async function stockIn(id) { await api(`/reagents/${id}/stock-in`, { method: "PATCH", body: JSON.stringify({ quantity: 2 }) }); state.reagents = await api("/reagents"); render(); }
-      async function createUsage() { await api("/reagent-usages", { method: "POST", body: JSON.stringify({ reagentId: state.reagents[1].id, experimentId: state.experiments[0].id, quantity: 1, purpose: "缓冲液配置" }) }); state.usages = await api("/reagent-usages"); state.reagents = await api("/reagents"); render(); }
+      async function createUsage() {
+        const quantity = Number(prompt("领用数量（登记量，按此先扣库存）", "1"));
+        if (!quantity || quantity <= 0) return;
+        try {
+          await api("/reagent-usages", {
+            method: "POST",
+            body: JSON.stringify({ reagentId: state.reagents[1].id, experimentId: state.experiments[0].id, quantity, purpose: "缓冲液配置", userId: currentUserId })
+          });
+        } catch (error) { alert(error.message); return; }
+        await loadUsages();
+        if (state.view === "dashboard") state.dashboard = await api("/dashboard");
+      }
+      async function loadUsages() {
+        const status = document.getElementById("statusFilter")?.value || "";
+        state.usages = await api(`/reagent-usages?status=${encodeURIComponent(status)}`);
+        state.reagents = await api("/reagents");
+        state.experiments = await api("/experiments");
+        render();
+      }
+      async function fillActual(id) {
+        const actualQuantity = Number(document.getElementById(`actual-${id}`).value);
+        if (!actualQuantity || actualQuantity <= 0) { alert("实领量必须大于 0"); return; }
+        try {
+          await api(`/reagent-usages/${id}/actual`, { method: "PATCH", body: JSON.stringify({ actualQuantity }) });
+        } catch (error) { alert(error.message); return; }
+        await loadUsages();
+        if (state.view === "dashboard") state.dashboard = await api("/dashboard");
+      }
+      async function withdrawUsage(id) {
+        if (!confirm("撤回后按当前生效量（实领量优先，否则登记量）把库存加回，确定撤回？")) return;
+        try {
+          await api(`/reagent-usages/${id}/withdraw`, { method: "PATCH" });
+        } catch (error) { alert(error.message); return; }
+        await loadUsages();
+        if (state.view === "dashboard") state.dashboard = await api("/dashboard");
+      }
       document.querySelectorAll(".nav").forEach((button) => button.onclick = () => show(button.dataset.view));
+      const userSelect = document.getElementById("userSelect");
+      userSelect.value = currentUserId;
+      userSelect.onchange = () => {
+        currentUserId = userSelect.value;
+        localStorage.setItem("research-lab-demo-user", currentUserId);
+        if (state.view === "usages") loadUsages();
+      };
       show("dashboard").catch((error) => document.getElementById("app").textContent = error.message);
     </script>
   </body>

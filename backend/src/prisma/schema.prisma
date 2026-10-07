@@ -57,6 +57,8 @@ model ReagentUsage {
   reagentId String
   userId String
   quantity Float
+  actualQuantity Float?
+  status String @default("Active")
   usedAt DateTime
   experimentId String
   purpose String

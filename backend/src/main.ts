@@ -22,7 +22,7 @@ const server = createServer(async (req, res) => {
   try {
     requestLoggerMiddleware(req);
     res.setHeader("access-control-allow-origin", "*");
-    res.setHeader("access-control-allow-headers", "content-type, authorization, x-demo-role");
+    res.setHeader("access-control-allow-headers", "content-type, authorization, x-demo-role, x-demo-user-id");
     res.setHeader("access-control-allow-methods", "GET,POST,PATCH,OPTIONS");
     if (req.method === "OPTIONS") {
       res.writeHead(204);
